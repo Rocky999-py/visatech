@@ -1,0 +1,8 @@
+{
+  "name": "Copy of VISATECH AI - Visa Appointment Automation final",
+  "description": "Enterprise-grade visa appointment booking software development powered by AI and ML. Global team of 30+ specialists providing custom automation solutions.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
