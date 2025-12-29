@@ -11,19 +11,16 @@ export const db = {
   getUserId: (): string => {
     let id = localStorage.getItem(DB_KEYS.USER_ID);
     if (!id) {
-      id = 'NODE_' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      id = 'NODE_' + Math.random().toString(36).substring(2, 11).toUpperCase();
       localStorage.setItem(DB_KEYS.USER_ID, id);
     }
     return id;
   },
 
   async apiRequest(endpoint: string, method: string = 'GET', body?: any) {
-    // Vercel deployment detection
-    const isVercel = window.location.hostname.includes('vercel.app');
-    if (!IS_PRODUCTION && !isVercel) return null;
-
     try {
-      const url = `${API_BASE_URL}${endpoint}`;
+      // API_BASE_URL is '/api' as per constants.ts
+      const url = `${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
       const options: RequestInit = {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -31,17 +28,18 @@ export const db = {
       
       if (body) options.body = JSON.stringify(body);
 
-      const response = await fetch(url, options);
+      // We use absolute path /api to hit Vercel functions
+      const response = await fetch(`${API_BASE_URL}${url}`, options);
       
       if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`API_ERROR [${endpoint}]:`, errText);
-        return null;
+        throw new Error(`API_STATUS_${response.status}`);
       }
       
       return await response.json();
     } catch (e) {
-      console.warn(`NETWORK_FAIL [${endpoint}]: Using local state.`);
+      if (IS_PRODUCTION) {
+        console.warn(`[SYNC_WARNING] ${endpoint} failed. Remote DB/Supabase may not be configured correctly in Vercel.`);
+      }
       return null;
     }
   },
@@ -98,11 +96,19 @@ export const db = {
   },
 
   updateVaultStatus: async (id: string, status: string): Promise<void> => {
+    const vault = await db.getVault();
+    const updated = vault.map(r => r.id === id ? { ...r, status } : r);
+    localStorage.setItem(DB_KEYS.VAULT, JSON.stringify(updated));
+
     await db.apiRequest(`/vault?id=${id}`, 'PATCH', { status });
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
   deleteVaultRequest: async (id: string): Promise<void> => {
+    const vault = await db.getVault();
+    const updated = vault.filter(r => r.id !== id);
+    localStorage.setItem(DB_KEYS.VAULT, JSON.stringify(updated));
+
     await db.apiRequest(`/vault?id=${id}`, 'DELETE');
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   }

@@ -1,7 +1,15 @@
 import { GoogleGenAI } from "@google/genai";
 
 export const generateVisaStrategy = async (fromCountry: string, toCountry: string) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Obtain API key exclusively from process.env.API_KEY
+  const apiKey = process.env.API_KEY;
+  
+  if (!apiKey) {
+    console.error("CRITICAL: API_KEY environment variable is missing.");
+    return "ANALYSIS_OFFLINE: System Architect must configure API_KEY in Vercel settings.";
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const response = await ai.models.generateContent({
@@ -21,6 +29,6 @@ export const generateVisaStrategy = async (fromCountry: string, toCountry: strin
     return response.text || "PROTOCOL_ERROR: Matrix initialization failed. Contact system architect.";
   } catch (error) {
     console.error("Gemini AI Error:", error);
-    return "ANALYSIS_OFFLINE: Please initialize manual consultation via WhatsApp Protocol.";
+    return "ANALYSIS_OFFLINE: Please initialize manual consultation via WhatsApp Protocol. Potential API connection timeout.";
   }
 };
