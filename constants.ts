@@ -3,10 +3,12 @@ import { Country, PricingPlan, PlanType } from './types';
 
 /** 
  * PRODUCTION API CONFIGURATION
- * Replace with your deployed backend URL (e.g., https://your-api.vercel.app/api)
+ * This is the URL for your Vercel Serverless Functions or Node.js Backend.
+ * To use local development, leave this as 'http://localhost:5000/api'.
+ * For Production, use your Vercel URL: 'https://your-app.vercel.app/api'
  */
-export const API_BASE_URL = 'https://visatech-api-production.up.railway.app/api'; 
-export const IS_PRODUCTION = true; // Toggle this to true for real DB connectivity
+export const API_BASE_URL = 'http://localhost:5000/api'; 
+export const IS_PRODUCTION = false; // Set to true only after deploying your backend!
 
 export const COUNTRIES: Country[] = [
   { name: 'United States', code: 'US', flag: '🇺🇸' },

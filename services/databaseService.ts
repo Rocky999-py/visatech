@@ -4,7 +4,8 @@ import { API_BASE_URL, IS_PRODUCTION } from '../constants';
 
 const DB_KEYS = {
   USER_ID: 'VT_DB_USER_ID',
-  LOCAL_BACKUP: 'VT_DB_LOCAL_BACKUP'
+  VAULT: 'VT_DB_VAULT_CACHE',
+  SESSIONS: 'VT_DB_SESSIONS_CACHE'
 };
 
 export const db = {
@@ -18,82 +19,127 @@ export const db = {
     return id;
   },
 
-  // --- RESTful Fetch Wrapper with Global Error Handling ---
+  // --- Resilient Fetch Wrapper ---
   async apiRequest(endpoint: string, method: string = 'GET', body?: any) {
     if (!IS_PRODUCTION) return null;
 
     try {
+      // Add a timeout to fetch to prevent long hangs
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal
       });
-      if (!response.ok) throw new Error('NETWORK_RESPONSE_NOT_OK');
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.warn(`DATABASE_OFFLINE: ${endpoint} returned ${response.status}`);
+        return null;
+      }
       return await response.json();
     } catch (e) {
-      console.error(`API_ERROR [${endpoint}]:`, e);
+      // Log as warning rather than error to avoid app-breaking alerts in some environments
+      console.warn(`SYNC_ERROR [${endpoint}]: Backend unreachable. Falling back to local.`);
       return null;
     }
   },
 
-  // --- Messages: Global Fetch ---
+  // --- Messages: Hybrid Fetch ---
   getMessages: async (userId: string): Promise<ChatMessage[]> => {
     const remoteData = await db.apiRequest(`/chat/${userId}`);
-    if (remoteData) return remoteData;
+    if (remoteData) {
+      // Update local cache with remote truth
+      localStorage.setItem(`VT_DB_CHAT_${userId}`, JSON.stringify(remoteData));
+      return remoteData;
+    }
 
-    // Fallback to local if server is down (No Dismissal Logic)
+    // Fallback to local
     const local = localStorage.getItem(`VT_DB_CHAT_${userId}`);
     return local ? JSON.parse(local) : [];
   },
 
   saveMessage: async (userId: string, message: ChatMessage): Promise<void> => {
-    // 1. Instant Local Persistence
-    const existing = await db.getMessages(userId);
-    const updated = [...existing, message];
-    localStorage.setItem(`VT_DB_CHAT_${userId}`, JSON.stringify(updated));
+    // 1. Instant Local Persistence (Zero-Loss)
+    const localKey = `VT_DB_CHAT_${userId}`;
+    const localData = localStorage.getItem(localKey);
+    const existing = localData ? JSON.parse(localData) : [];
+    localStorage.setItem(localKey, JSON.stringify([...existing, message]));
 
-    // 2. Global Sync (Production)
+    // 2. Background Global Sync
     if (IS_PRODUCTION) {
-      await db.apiRequest('/chat', 'POST', { userId, message });
+      db.apiRequest('/chat', 'POST', { userId, message });
     }
     
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
-  // --- Vault: Global Fetch ---
+  // --- Vault: Hybrid Fetch ---
   getVault: async (): Promise<DeploymentRequest[]> => {
     const remoteData = await db.apiRequest('/vault');
     if (remoteData) {
-      localStorage.setItem('VT_DB_VAULT_CACHE', JSON.stringify(remoteData));
+      localStorage.setItem(DB_KEYS.VAULT, JSON.stringify(remoteData));
       return remoteData;
     }
-    const local = localStorage.getItem('VT_DB_VAULT_CACHE');
+    const local = localStorage.getItem(DB_KEYS.VAULT);
     return local ? JSON.parse(local) : [];
   },
 
   addVaultRequest: async (request: DeploymentRequest): Promise<void> => {
     // 1. Local Persistence
     const vault = await db.getVault();
-    localStorage.setItem('VT_DB_VAULT_CACHE', JSON.stringify([...vault, request]));
+    localStorage.setItem(DB_KEYS.VAULT, JSON.stringify([...vault, request]));
 
     // 2. Production API Submit
-    await db.apiRequest('/vault', 'POST', request);
+    if (IS_PRODUCTION) {
+      db.apiRequest('/vault', 'POST', request);
+    }
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
   // --- Sessions: Admin Global View ---
   getSessions: async (): Promise<UserSession[]> => {
     const remoteData = await db.apiRequest('/sessions');
-    return remoteData || [];
+    if (remoteData) {
+      localStorage.setItem(DB_KEYS.SESSIONS, JSON.stringify(remoteData));
+      return remoteData;
+    }
+    
+    // Fallback: Generate sessions from current vault if remote is down
+    const vault = await db.getVault();
+    const sessionsFromVault: UserSession[] = vault.map(r => ({
+      id: r.userId,
+      name: r.name,
+      lastActive: r.timestamp,
+      nodeStatus: 'OFFLINE'
+    }));
+    
+    return sessionsFromVault;
   },
 
   updateVaultStatus: async (id: string, status: DeploymentRequest['status']): Promise<void> => {
-    await db.apiRequest(`/vault/${id}/status`, 'PATCH', { status });
+    // Update local cache first
+    const vault = await db.getVault();
+    const updated = vault.map(r => r.id === id ? { ...r, status } : r);
+    localStorage.setItem(DB_KEYS.VAULT, JSON.stringify(updated));
+
+    if (IS_PRODUCTION) {
+      db.apiRequest(`/vault/${id}/status`, 'PATCH', { status });
+    }
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
   deleteVaultRequest: async (id: string): Promise<void> => {
-    await db.apiRequest(`/vault/${id}`, 'DELETE');
+    const vault = await db.getVault();
+    localStorage.setItem(DB_KEYS.VAULT, JSON.stringify(vault.filter(r => r.id !== id)));
+
+    if (IS_PRODUCTION) {
+      db.apiRequest(`/vault/${id}`, 'DELETE');
+    }
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   }
 };
