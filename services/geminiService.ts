@@ -1,12 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 
 export const generateVisaStrategy = async (fromCountry: string, toCountry: string) => {
-  // Obtain API key exclusively from process.env.API_KEY
+  // Use the pre-configured API key from environment
   const apiKey = process.env.API_KEY;
   
   if (!apiKey) {
-    console.error("CRITICAL: API_KEY environment variable is missing.");
-    return "ANALYSIS_OFFLINE: System Architect must configure API_KEY in Vercel settings.";
+    console.error("Gemini API Error: API_KEY is undefined. Check Vercel Environment Variables.");
+    return "SYSTEM_CONFIG_ERROR: The Gemini API Key is missing. Please ensure 'API_KEY' is added correctly to your Vercel project settings.";
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -14,21 +14,22 @@ export const generateVisaStrategy = async (fromCountry: string, toCountry: strin
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `You are the lead architect at VISATECH AI. 
-      Generate a professional technical deployment strategy for a visa appointment automation bot for the route: ${fromCountry} to ${toCountry}.
+      contents: `You are the Lead Architect at VISATECH AI. 
+      Analyze the appointment booking landscape for: ${fromCountry} to ${toCountry}.
       
-      The output MUST be in two parts:
-      1. A technical log in JSON format (wrapped in triple backticks) containing: "endpoint_status", "fingerprint_mode", "ip_rotation_strategy", and "expected_latency".
-      2. A concise engineering summary (100 words max) explaining how our ML behavioral models will bypass the specific portal protection for this route.
+      Provide a technical deployment strategy that includes:
+      1. A technical log in JSON format (wrapped in triple backticks) with: "endpoint_status", "fingerprint_mode", "ip_rotation_strategy", and "expected_latency".
+      2. A 100-word executive summary for the agency's CTO detailing how our ML-driven behavior models bypass detection on this specific portal (VFS, BLS, or Consulate directly).
       
-      Use advanced technical terminology (e.g., Canvas Fingerprinting, TLS Handshake Obfuscation, Residential Proxy Backbones).`,
+      Use extreme technical jargon: Canvas Spoofing, TLS Fingerprint Randomization, Residential Backbone, and Neural OCR layers.`,
       config: {
-        temperature: 0.8,
+        temperature: 0.9,
       }
     });
-    return response.text || "PROTOCOL_ERROR: Matrix initialization failed. Contact system architect.";
+    
+    return response.text || "COMMUNICATION_TIMEOUT: The Matrix failed to respond. Retrying uplink...";
   } catch (error) {
-    console.error("Gemini AI Error:", error);
-    return "ANALYSIS_OFFLINE: Please initialize manual consultation via WhatsApp Protocol. Potential API connection timeout.";
+    console.error("Gemini AI Analysis Error:", error);
+    return `ANALYSIS_FAILED: ${error instanceof Error ? error.message : 'Unknown Protocol Error'}. Ensure your API key is valid and redeploy your Vercel project.`;
   }
 };

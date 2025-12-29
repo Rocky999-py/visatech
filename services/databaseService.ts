@@ -19,8 +19,10 @@ export const db = {
 
   async apiRequest(endpoint: string, method: string = 'GET', body?: any) {
     try {
-      // API_BASE_URL is '/api' as per constants.ts
-      const url = `${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+      // API_BASE_URL is '/api'
+      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      const url = `${API_BASE_URL}${cleanEndpoint}`;
+      
       const options: RequestInit = {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -28,17 +30,16 @@ export const db = {
       
       if (body) options.body = JSON.stringify(body);
 
-      // We use absolute path /api to hit Vercel functions
-      const response = await fetch(`${API_BASE_URL}${url}`, options);
+      const response = await fetch(url, options);
       
       if (!response.ok) {
-        throw new Error(`API_STATUS_${response.status}`);
+        throw new Error(`API_ERROR_HTTP_${response.status}`);
       }
       
       return await response.json();
     } catch (e) {
       if (IS_PRODUCTION) {
-        console.warn(`[SYNC_WARNING] ${endpoint} failed. Remote DB/Supabase may not be configured correctly in Vercel.`);
+        console.warn(`[DB_SYNC] Remote endpoint ${endpoint} failed. Remote database is likely disconnected.`);
       }
       return null;
     }
@@ -55,14 +56,14 @@ export const db = {
   },
 
   saveMessage: async (userId: string, message: ChatMessage): Promise<void> => {
-    // Immediate local feedback
+    // Local update first for speed
     const localKey = `VT_DB_CHAT_${userId}`;
     const localData = localStorage.getItem(localKey);
     const existing = localData ? JSON.parse(localData) : [];
     const updated = [...existing, message];
     localStorage.setItem(localKey, JSON.stringify(updated));
 
-    // Background sync to Cloud
+    // Attempt cloud sync
     await db.apiRequest('/chat', 'POST', { userId, message });
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
