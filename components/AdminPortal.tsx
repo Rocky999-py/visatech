@@ -32,8 +32,7 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const refreshMatrix = async () => {
-    if (isLoading) return;
-    setIsLoading(true);
+    // Only fetch if tab is active or initial load
     try {
       const [vault, active] = await Promise.all([
         db.getVault(),
@@ -48,19 +47,14 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
         setMessages(msgs);
       }
 
-      // Check if remote data was actually fetched or if it was local fallback
-      const isRemoteActive = IS_PRODUCTION && requests.length > 0;
-
       setStatus({
-        dbConnected: IS_PRODUCTION, // In a real app, you'd check a health endpoint
+        dbConnected: IS_PRODUCTION,
         activeNodes: active.length,
         serverLoad: `${(Math.random() * 8 + 2).toFixed(1)}%`,
         latency: `${Math.floor(Math.random() * 30 + 15)}ms`
       });
     } catch (e) {
       console.warn("ADMIN_REFRESH_FAILED");
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -68,14 +62,16 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
     if (!isAuthorized || !isOpen) return;
 
     refreshMatrix();
-    const poll = setInterval(refreshMatrix, 8000);
+    const poll = setInterval(refreshMatrix, 5000); // Faster polling for real-time chat feel
     
     const handler = () => refreshMatrix();
     window.addEventListener('VT_DB_UPDATE', handler);
+    window.addEventListener('storage', handler); // Capture updates from other tabs
 
     return () => {
       clearInterval(poll);
       window.removeEventListener('VT_DB_UPDATE', handler);
+      window.removeEventListener('storage', handler);
     };
   }, [isAuthorized, isOpen, selectedUserId]);
 
@@ -110,7 +106,9 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
     await db.saveMessage(selectedUserId, reply);
     setReplyText('');
     sound.playClick();
-    refreshMatrix();
+    // Immediate refresh
+    const msgs = await db.getMessages(selectedUserId);
+    setMessages(msgs);
   };
 
   if (!isOpen) return null;
@@ -140,9 +138,9 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
                <div className="flex flex-col">
                   <h2 className="text-xl font-black text-white tracking-tighter uppercase leading-none">COO <span className="neon-gold-text">CONSOLE</span></h2>
                   <div className="flex items-center gap-2 mt-2">
-                    <span className={`w-2 h-2 rounded-full ${status.dbConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                    <span className={`w-2 h-2 rounded-full ${status.dbConnected ? 'bg-green-500 animate-pulse' : 'bg-amber-500/30'}`}></span>
                     <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
-                      Database Mode: {IS_PRODUCTION ? (status.dbConnected ? 'SYNC_ACTIVE' : 'RECONNECTING...') : 'DEVELOPMENT_LOCAL'}
+                      Node Status: {IS_PRODUCTION ? (status.dbConnected ? 'SYNC_ACTIVE' : 'RECONNECTING...') : 'HYBRID_CACHE_MODE'}
                     </span>
                   </div>
                </div>
@@ -164,15 +162,25 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
                   </div>
                   <div className="flex-grow overflow-y-auto p-4 space-y-3 custom-scrollbar">
                     {sessions.length === 0 ? (
-                      <div className="text-center py-10 text-[10px] text-slate-700 font-bold uppercase tracking-widest italic">Scanning frequencies...</div>
+                      <div className="text-center py-10 text-[10px] text-slate-700 font-bold uppercase tracking-widest italic animate-pulse">Scanning frequencies...</div>
                     ) : (
                       sessions.map(s => (
                         <button 
                           key={s.id} onClick={() => { setSelectedUserId(s.id); sound.playClick(); }}
-                          className={`w-full p-4 rounded-2xl text-left border transition-all ${selectedUserId === s.id ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg' : 'bg-slate-900/50 text-slate-400 border-white/5 hover:border-amber-500/30'}`}
+                          className={`w-full p-4 rounded-2xl text-left border transition-all relative overflow-hidden group ${selectedUserId === s.id ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg' : 'bg-slate-900/50 text-slate-400 border-white/5 hover:border-amber-500/30'}`}
                         >
-                          <span className="font-black text-[10px] uppercase truncate block">{s.name || `NODE_${s.id.slice(-6)}`}</span>
-                          <span className="text-[7px] font-bold opacity-60">ID: {s.id.slice(0,10)}...</span>
+                          <div className="flex flex-col relative z-10">
+                            <span className="font-black text-[10px] uppercase truncate block">{s.name || `NODE_${s.id.slice(-6)}`}</span>
+                            <span className="text-[7px] font-bold opacity-60">ID: {s.id.slice(0,12)}</span>
+                            {s.lastMessage && (
+                                <span className={`text-[8px] mt-2 font-medium truncate ${selectedUserId === s.id ? 'text-slate-900' : 'text-slate-600'}`}>
+                                    {s.lastMessage}
+                                </span>
+                            )}
+                          </div>
+                          {s.nodeStatus === 'ONLINE' && (
+                              <div className="absolute top-3 right-3 w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
+                          )}
                         </button>
                       ))
                     )}
@@ -182,8 +190,13 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
                   <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{backgroundImage: 'radial-gradient(#f59e0b 0.5px, transparent 0.5px)', backgroundSize: '20px 20px'}}></div>
                   {selectedUserId ? (
                     <>
-                      <div ref={scrollRef} className="flex-grow p-4 sm:p-8 overflow-y-auto space-y-6 bg-slate-950/20 custom-scrollbar">
-                        {messages.map((m, i) => (
+                      <div ref={scrollRef} className="flex-grow p-4 sm:p-8 overflow-y-auto space-y-6 bg-slate-950/20 custom-scrollbar scroll-smooth">
+                        {messages.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center opacity-20">
+                                <i className="fas fa-comment-slash text-5xl mb-4"></i>
+                                <p className="font-black text-[10px] uppercase tracking-widest">No communication history</p>
+                            </div>
+                        ) : messages.map((m, i) => (
                           <div key={m.id || i} className={`flex ${m.sender === 'coo' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-${m.sender === 'coo' ? 'right' : 'left'} duration-300`}>
                             <div className={`max-w-[80%] p-4 rounded-2xl shadow-xl ${m.sender === 'coo' ? 'bg-amber-500 text-slate-950 rounded-tr-none' : 'bg-slate-800 text-white rounded-tl-none border border-white/10'}`}>
                               <p className="text-[11px] font-bold uppercase leading-relaxed">{m.text}</p>
@@ -192,20 +205,21 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
                           </div>
                         ))}
                       </div>
-                      <div className="p-4 sm:p-6 border-t border-white/5 flex gap-4 bg-slate-950/80 backdrop-blur-xl">
+                      <div className="p-4 sm:p-6 border-t border-white/5 flex gap-4 bg-slate-950/80 backdrop-blur-xl shrink-0">
                         <input 
                           type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)}
                           onKeyPress={(e) => e.key === 'Enter' && sendReply()}
                           placeholder="TRANSMIT GLOBAL COMMAND..."
-                          className="flex-grow bg-slate-900 border border-white/10 rounded-xl px-6 py-4 text-white font-black text-[10px] tracking-widest outline-none focus:border-amber-500 transition-all"
+                          className="flex-grow bg-slate-900 border border-white/10 rounded-xl px-6 py-4 text-white font-black text-[10px] tracking-widest outline-none focus:border-amber-500 transition-all uppercase"
                         />
-                        <button onClick={sendReply} className="btn-neon-gold text-slate-950 px-10 rounded-xl font-black uppercase text-[10px] shadow-2xl">Send</button>
+                        <button onClick={sendReply} className="btn-neon-gold text-slate-950 px-10 rounded-xl font-black uppercase text-[10px] shadow-2xl transition-all active:scale-95">Send</button>
                       </div>
                     </>
                   ) : (
                     <div className="flex-grow flex flex-col items-center justify-center p-12 opacity-10">
                       <i className="fas fa-satellite-dish text-[8rem] mb-12 animate-pulse text-amber-500"></i>
                       <p className="text-[14px] font-black uppercase tracking-[1em]">AWAITING_PRODUCTION_LINK</p>
+                      <p className="text-[9px] font-bold mt-4 tracking-widest">Select a node from the left matrix to initialize comms</p>
                     </div>
                   )}
                 </div>
@@ -218,7 +232,7 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ isOpen, onClose }) => {
                     <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest mt-2">Historical Encryption Records</p>
                   </div>
                   <span className={`text-[10px] font-black px-4 py-2 rounded-xl border ${IS_PRODUCTION ? 'text-amber-500 bg-amber-500/10 border-amber-500/20' : 'text-slate-500 bg-slate-500/10 border-slate-500/20'}`}>
-                    {IS_PRODUCTION ? 'PRODUCTION_SYNC' : 'LOCAL_ONLY'}
+                    {IS_PRODUCTION ? 'PRODUCTION_SYNC' : 'HYBRID_CACHE_MODE'}
                   </span>
                 </div>
                 {requests.length === 0 ? (

@@ -24,7 +24,6 @@ export const db = {
     if (!IS_PRODUCTION) return null;
 
     try {
-      // Add a timeout to fetch to prevent long hangs
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
@@ -43,7 +42,6 @@ export const db = {
       }
       return await response.json();
     } catch (e) {
-      // Log as warning rather than error to avoid app-breaking alerts in some environments
       console.warn(`SYNC_ERROR [${endpoint}]: Backend unreachable. Falling back to local.`);
       return null;
     }
@@ -53,28 +51,47 @@ export const db = {
   getMessages: async (userId: string): Promise<ChatMessage[]> => {
     const remoteData = await db.apiRequest(`/chat/${userId}`);
     if (remoteData) {
-      // Update local cache with remote truth
       localStorage.setItem(`VT_DB_CHAT_${userId}`, JSON.stringify(remoteData));
       return remoteData;
     }
 
-    // Fallback to local
     const local = localStorage.getItem(`VT_DB_CHAT_${userId}`);
     return local ? JSON.parse(local) : [];
   },
 
   saveMessage: async (userId: string, message: ChatMessage): Promise<void> => {
-    // 1. Instant Local Persistence (Zero-Loss)
+    // 1. Instant Local Persistence
     const localKey = `VT_DB_CHAT_${userId}`;
     const localData = localStorage.getItem(localKey);
     const existing = localData ? JSON.parse(localData) : [];
-    localStorage.setItem(localKey, JSON.stringify([...existing, message]));
+    const updatedMessages = [...existing, message];
+    localStorage.setItem(localKey, JSON.stringify(updatedMessages));
 
-    // 2. Background Global Sync
+    // 2. Track this user in local sessions list for Admin visibility
+    const sessionsStr = localStorage.getItem(DB_KEYS.SESSIONS);
+    let sessions: UserSession[] = sessionsStr ? JSON.parse(sessionsStr) : [];
+    
+    const existingSessionIdx = sessions.findIndex(s => s.id === userId);
+    if (existingSessionIdx > -1) {
+      sessions[existingSessionIdx].lastActive = Date.now();
+      sessions[existingSessionIdx].lastMessage = message.text;
+    } else {
+      sessions.push({
+        id: userId,
+        name: message.sender === 'user' ? 'Anonymous User' : 'COO Office',
+        lastActive: Date.now(),
+        lastMessage: message.text,
+        nodeStatus: 'ONLINE'
+      });
+    }
+    localStorage.setItem(DB_KEYS.SESSIONS, JSON.stringify(sessions));
+
+    // 3. Background Global Sync
     if (IS_PRODUCTION) {
       db.apiRequest('/chat', 'POST', { userId, message });
     }
     
+    // Trigger update for Admin panel
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
@@ -94,7 +111,25 @@ export const db = {
     const vault = await db.getVault();
     localStorage.setItem(DB_KEYS.VAULT, JSON.stringify([...vault, request]));
 
-    // 2. Production API Submit
+    // 2. Update session info
+    const sessionsStr = localStorage.getItem(DB_KEYS.SESSIONS);
+    let sessions: UserSession[] = sessionsStr ? JSON.parse(sessionsStr) : [];
+    const existingSessionIdx = sessions.findIndex(s => s.id === request.userId);
+    
+    if (existingSessionIdx > -1) {
+      sessions[existingSessionIdx].name = request.name;
+      sessions[existingSessionIdx].lastActive = Date.now();
+    } else {
+      sessions.push({
+        id: request.userId,
+        name: request.name,
+        lastActive: Date.now(),
+        nodeStatus: 'ONLINE'
+      });
+    }
+    localStorage.setItem(DB_KEYS.SESSIONS, JSON.stringify(sessions));
+
+    // 3. Production API Submit
     if (IS_PRODUCTION) {
       db.apiRequest('/vault', 'POST', request);
     }
@@ -109,20 +144,26 @@ export const db = {
       return remoteData;
     }
     
-    // Fallback: Generate sessions from current vault if remote is down
-    const vault = await db.getVault();
-    const sessionsFromVault: UserSession[] = vault.map(r => ({
-      id: r.userId,
-      name: r.name,
-      lastActive: r.timestamp,
-      nodeStatus: 'OFFLINE'
-    }));
+    // Fallback: Combine local session cache with vault records
+    const localSessionsStr = localStorage.getItem(DB_KEYS.SESSIONS);
+    let sessions: UserSession[] = localSessionsStr ? JSON.parse(localSessionsStr) : [];
     
-    return sessionsFromVault;
+    const vault = await db.getVault();
+    vault.forEach(v => {
+      if (!sessions.find(s => s.id === v.userId)) {
+        sessions.push({
+          id: v.userId,
+          name: v.name,
+          lastActive: v.timestamp,
+          nodeStatus: 'OFFLINE'
+        });
+      }
+    });
+    
+    return sessions;
   },
 
   updateVaultStatus: async (id: string, status: DeploymentRequest['status']): Promise<void> => {
-    // Update local cache first
     const vault = await db.getVault();
     const updated = vault.map(r => r.id === id ? { ...r, status } : r);
     localStorage.setItem(DB_KEYS.VAULT, JSON.stringify(updated));
