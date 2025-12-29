@@ -24,6 +24,7 @@ export interface PricingPlan {
 }
 
 export interface DeploymentRequest {
+  _id?: string; // MongoDB style ID
   id: string;
   userId: string;
   name: string;
@@ -33,10 +34,13 @@ export interface DeploymentRequest {
   toCountry: string;
   message: string;
   timestamp: number;
+  createdAt?: string;
   status: 'PENDING' | 'ANALYZING' | 'DEPLOYED' | 'ARCHIVED';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 }
 
 export interface ChatMessage {
+  _id?: string;
   id: string;
   sender: 'user' | 'coo';
   text: string;
@@ -45,7 +49,17 @@ export interface ChatMessage {
 }
 
 export interface UserSession {
+  _id?: string;
   id: string;
   name?: string;
   lastActive: number;
+  lastMessage?: string;
+  nodeStatus: 'ONLINE' | 'OFFLINE' | 'SUSPENDED';
+}
+
+export interface SystemStatus {
+  dbConnected: boolean;
+  activeNodes: number;
+  serverLoad: string;
+  latency: string;
 }

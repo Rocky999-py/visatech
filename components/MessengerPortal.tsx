@@ -16,8 +16,9 @@ const MessengerPortal: React.FC<MessengerPortalProps> = ({ isOpen, onClose }) =>
   const scrollRef = useRef<HTMLDivElement>(null);
   const [userId] = useState(() => db.getUserId());
 
-  const hydrateChat = () => {
-    const stored = db.getMessages(userId);
+  // Fixed: Made hydrateChat async to correctly await the promise from db.getMessages and db.saveMessage
+  const hydrateChat = async () => {
+    const stored = await db.getMessages(userId);
     if (stored.length === 0) {
       const greeting: ChatMessage = {
         id: 'INIT_' + Date.now(),
@@ -26,7 +27,7 @@ const MessengerPortal: React.FC<MessengerPortalProps> = ({ isOpen, onClose }) =>
         timestamp: Date.now(),
         userId
       };
-      db.saveMessage(userId, greeting);
+      await db.saveMessage(userId, greeting);
       setMessages([greeting]);
     } else {
       setMessages(stored);
@@ -37,7 +38,9 @@ const MessengerPortal: React.FC<MessengerPortalProps> = ({ isOpen, onClose }) =>
     if (isOpen) {
       hydrateChat();
       
-      const syncHandler = () => hydrateChat();
+      const syncHandler = () => {
+        hydrateChat();
+      };
       window.addEventListener('storage', syncHandler); // Other tabs
       window.addEventListener('VT_DB_UPDATE', syncHandler); // Same tab
 
@@ -54,7 +57,8 @@ const MessengerPortal: React.FC<MessengerPortalProps> = ({ isOpen, onClose }) =>
     }
   }, [messages, isMinimized]);
 
-  const handleSend = () => {
+  // Fixed: Made handleSend async to correctly await the promise from db.saveMessage
+  const handleSend = async () => {
     if (!inputValue.trim()) return;
     
     const newMessage: ChatMessage = {
@@ -65,7 +69,7 @@ const MessengerPortal: React.FC<MessengerPortalProps> = ({ isOpen, onClose }) =>
       userId
     };
 
-    db.saveMessage(userId, newMessage);
+    await db.saveMessage(userId, newMessage);
     setInputValue('');
     sound.playClick();
   };

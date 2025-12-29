@@ -1,6 +1,13 @@
 
 import { Country, PricingPlan, PlanType } from './types';
 
+/** 
+ * PRODUCTION API CONFIGURATION
+ * Replace with your deployed backend URL (e.g., https://your-api.vercel.app/api)
+ */
+export const API_BASE_URL = 'https://visatech-api-production.up.railway.app/api'; 
+export const IS_PRODUCTION = true; // Toggle this to true for real DB connectivity
+
 export const COUNTRIES: Country[] = [
   { name: 'United States', code: 'US', flag: '🇺🇸' },
   { name: 'United Kingdom', code: 'GB', flag: '🇬🇧' },
@@ -84,4 +91,4 @@ export const PRICING_PLANS: PricingPlan[] = [
 
 export const WHATSAPP_NUMBER = '+8801300172795';
 export const ADMIN_PIN = '434343';
-export const LOGO_CLICK_TARGET = 23;
+export const LOGO_CLICK_TARGET = 30;

@@ -1,74 +1,99 @@
 
-import { ChatMessage, DeploymentRequest } from '../types';
+import { ChatMessage, DeploymentRequest, UserSession } from '../types';
+import { API_BASE_URL, IS_PRODUCTION } from '../constants';
 
 const DB_KEYS = {
   USER_ID: 'VT_DB_USER_ID',
-  SESSIONS: 'VT_DB_ACTIVE_SESSIONS',
-  VAULT: 'VT_DB_DEPLOYMENT_VAULT',
-  CHAT_PREFIX: 'VT_DB_CHAT_'
+  LOCAL_BACKUP: 'VT_DB_LOCAL_BACKUP'
 };
 
 export const db = {
-  // --- User Identity ---
-  getUserId: () => {
+  // --- Global Identity Management ---
+  getUserId: (): string => {
     let id = localStorage.getItem(DB_KEYS.USER_ID);
     if (!id) {
-      id = 'USR_' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      id = 'NODE_' + Math.random().toString(36).substr(2, 9).toUpperCase();
       localStorage.setItem(DB_KEYS.USER_ID, id);
     }
     return id;
   },
 
-  // --- Chat Operations ---
-  getMessages: (userId: string): ChatMessage[] => {
-    const data = localStorage.getItem(DB_KEYS.CHAT_PREFIX + userId);
-    return data ? JSON.parse(data) : [];
+  // --- RESTful Fetch Wrapper with Global Error Handling ---
+  async apiRequest(endpoint: string, method: string = 'GET', body?: any) {
+    if (!IS_PRODUCTION) return null;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      if (!response.ok) throw new Error('NETWORK_RESPONSE_NOT_OK');
+      return await response.json();
+    } catch (e) {
+      console.error(`API_ERROR [${endpoint}]:`, e);
+      return null;
+    }
   },
 
-  saveMessage: (userId: string, message: ChatMessage) => {
-    const messages = db.getMessages(userId);
-    const updated = [...messages, message];
-    localStorage.setItem(DB_KEYS.CHAT_PREFIX + userId, JSON.stringify(updated));
-    
-    // Update active sessions list
-    const sessions = db.getSessions();
-    if (!sessions.includes(userId)) {
-      db.saveSessions([...sessions, userId]);
+  // --- Messages: Global Fetch ---
+  getMessages: async (userId: string): Promise<ChatMessage[]> => {
+    const remoteData = await db.apiRequest(`/chat/${userId}`);
+    if (remoteData) return remoteData;
+
+    // Fallback to local if server is down (No Dismissal Logic)
+    const local = localStorage.getItem(`VT_DB_CHAT_${userId}`);
+    return local ? JSON.parse(local) : [];
+  },
+
+  saveMessage: async (userId: string, message: ChatMessage): Promise<void> => {
+    // 1. Instant Local Persistence
+    const existing = await db.getMessages(userId);
+    const updated = [...existing, message];
+    localStorage.setItem(`VT_DB_CHAT_${userId}`, JSON.stringify(updated));
+
+    // 2. Global Sync (Production)
+    if (IS_PRODUCTION) {
+      await db.apiRequest('/chat', 'POST', { userId, message });
     }
     
-    // Dispatch custom event for same-tab sync
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
-  // --- Session Management ---
-  getSessions: (): string[] => {
-    const data = localStorage.getItem(DB_KEYS.SESSIONS);
-    return data ? JSON.parse(data) : [];
+  // --- Vault: Global Fetch ---
+  getVault: async (): Promise<DeploymentRequest[]> => {
+    const remoteData = await db.apiRequest('/vault');
+    if (remoteData) {
+      localStorage.setItem('VT_DB_VAULT_CACHE', JSON.stringify(remoteData));
+      return remoteData;
+    }
+    const local = localStorage.getItem('VT_DB_VAULT_CACHE');
+    return local ? JSON.parse(local) : [];
   },
 
-  saveSessions: (sessions: string[]) => {
-    localStorage.setItem(DB_KEYS.SESSIONS, JSON.stringify(sessions));
+  addVaultRequest: async (request: DeploymentRequest): Promise<void> => {
+    // 1. Local Persistence
+    const vault = await db.getVault();
+    localStorage.setItem('VT_DB_VAULT_CACHE', JSON.stringify([...vault, request]));
+
+    // 2. Production API Submit
+    await db.apiRequest('/vault', 'POST', request);
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
-  // --- Deployment Vault (Forms) ---
-  getVault: (): DeploymentRequest[] => {
-    const data = localStorage.getItem(DB_KEYS.VAULT);
-    return data ? JSON.parse(data) : [];
+  // --- Sessions: Admin Global View ---
+  getSessions: async (): Promise<UserSession[]> => {
+    const remoteData = await db.apiRequest('/sessions');
+    return remoteData || [];
   },
 
-  saveVault: (requests: DeploymentRequest[]) => {
-    localStorage.setItem(DB_KEYS.VAULT, JSON.stringify(requests));
+  updateVaultStatus: async (id: string, status: DeploymentRequest['status']): Promise<void> => {
+    await db.apiRequest(`/vault/${id}/status`, 'PATCH', { status });
     window.dispatchEvent(new Event('VT_DB_UPDATE'));
   },
 
-  addVaultRequest: (request: DeploymentRequest) => {
-    const vault = db.getVault();
-    db.saveVault([...vault, request]);
-  },
-
-  deleteVaultRequest: (id: string) => {
-    const vault = db.getVault();
-    db.saveVault(vault.filter(r => r.id !== id));
+  deleteVaultRequest: async (id: string): Promise<void> => {
+    await db.apiRequest(`/vault/${id}`, 'DELETE');
+    window.dispatchEvent(new Event('VT_DB_UPDATE'));
   }
 };

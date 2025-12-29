@@ -39,6 +39,7 @@ const Navbar: React.FC<NavbarProps> = ({ onContact, onScrollTo, onSecretAccess }
   const handleLogoClick = () => {
     sound.playClick();
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    
     setClickCount(prev => {
       const nextCount = prev + 1;
       if (nextCount >= LOGO_CLICK_TARGET) {
@@ -47,6 +48,8 @@ const Navbar: React.FC<NavbarProps> = ({ onContact, onScrollTo, onSecretAccess }
       }
       return nextCount;
     });
+
+    // Reset counter if user stops clicking
     resetTimerRef.current = setTimeout(() => setClickCount(0), 3000);
   };
 
@@ -58,11 +61,6 @@ const Navbar: React.FC<NavbarProps> = ({ onContact, onScrollTo, onSecretAccess }
             <Logo size={window.innerWidth < 640 ? 30 : 42} className="group-hover:scale-110 transition-transform" />
             <span className="font-bold text-lg sm:text-2xl tracking-tighter text-white uppercase flex items-center">
               VISATECH <span className="neon-gold-text ml-1.5">AI</span>
-              {clickCount > 0 && (
-                <span className="ml-2 text-[8px] text-amber-500 font-mono animate-pulse hidden sm:block">
-                  [{clickCount}/{LOGO_CLICK_TARGET}]
-                </span>
-              )}
             </span>
           </div>
 
