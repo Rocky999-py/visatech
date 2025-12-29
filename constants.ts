@@ -3,12 +3,10 @@ import { Country, PricingPlan, PlanType } from './types';
 
 /** 
  * PRODUCTION API CONFIGURATION
- * This is the URL for your Vercel Serverless Functions or Node.js Backend.
- * To use local development, leave this as 'http://localhost:5000/api'.
- * For Production, use your Vercel URL: 'https://your-app.vercel.app/api'
+ * On Vercel, relative paths work automatically for /api folder.
  */
-export const API_BASE_URL = 'http://localhost:5000/api'; 
-export const IS_PRODUCTION = false; // Set to true only after deploying your backend!
+export const API_BASE_URL = '/api'; 
+export const IS_PRODUCTION = true; 
 
 export const COUNTRIES: Country[] = [
   { name: 'United States', code: 'US', flag: '🇺🇸' },
